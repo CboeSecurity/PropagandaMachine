@@ -16,6 +16,7 @@ The purpose of this tool is to provide indicators of compromise (IOCs) that can 
  * Files (Zero-filled, with abitrary sizes)
 2. Stub support exists for:
  * TCP/UDP bound listening ports, simulating immediate responses (like SSH) or after receiving *any* input (more like HTTP)
+ * Start up a dummy process... e.g. windbg.exe or avp.exe <- Hey look mom, I've got Kaspersky running here!
 3. Planned support for:
  * Dropping files with arbitrary content (either from a URL or from within the JSON file)
  * Honey AuthToken creation - given a set of credentials, create an authtoken. <- this can be dangerous, should be used *very* carefully if this feature is ever created... but it could be interesting for testing SIEMs and/or seeing if someone gets a PTH that shouldn't ever be touched
