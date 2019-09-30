@@ -35,11 +35,26 @@ using Microsoft.Win32.SafeHandles;
 using System.Security.Permissions;
 using System.ComponentModel;
 
+// network listeners
+using System.Net.Sockets;
+
+
 using System.Threading.Tasks;
 using Topshelf;
 
 namespace Innoculate.Service
 {
+    struct asyncObj
+    {
+        public NetworkStream stream;
+        public JsonListener listener;
+
+        public asyncObj(NetworkStream astream, JsonListener alistener)
+        {
+            stream = astream;
+            listener = alistener;
+        }
+    }
     public class BooleanJsonConverter : JsonConverter
     {
         public override bool CanConvert(Type objectType)
@@ -328,9 +343,9 @@ namespace Innoculate.Service
     public class JsonListener : IEquatable<JsonListener>
     {
         public string protocol { get; set; }
-        public uint port { get; set; }
+        public int port { get; set; }
         public string response { get; set; }
-        public bool immediateresponse { get; set; }
+        public bool respondfirst { get; set; }
 
         public override bool Equals(object obj)
         {
@@ -347,7 +362,7 @@ namespace Innoculate.Service
         }
         public override int GetHashCode()
         {
-            return protocol.GetHashCode() ^ port.GetHashCode() ^ response.GetHashCode() ^ immediateresponse.GetHashCode();
+            return protocol.GetHashCode() ^ port.GetHashCode() ^ response.GetHashCode() ^ respondfirst.GetHashCode();
         }
     }
 
@@ -359,6 +374,7 @@ namespace Innoculate.Service
         public List<JsonMailslot> mailslots { get; set; }
         public List<JsonProcess> processes { get; set; }
         public List<JsonRegkey> regkeys { get; set; }
+        public List<JsonListener> listeners { get; set; }
     }
     class WinService
     {
@@ -369,6 +385,9 @@ namespace Innoculate.Service
         private static List<JsonRegkey> regkeyList;
         private static List<JsonFilepath> filepathList;
         private static List<JsonMailslot> mailslotList;
+        private static List<JsonListener> listenerList;
+
+        private static List<Thread> threadList;
 
         public ILog Log { get; private set; }
 
@@ -386,7 +405,9 @@ namespace Innoculate.Service
             regkeyList = new List<JsonRegkey>();
             filepathList = new List<JsonFilepath>();
             mailslotList = new List<JsonMailslot>();
+            listenerList = new List<JsonListener>();
 
+            threadList = new List<Thread>();
         }
 
         private static void SyncFromJSON(string html)
@@ -421,7 +442,10 @@ namespace Innoculate.Service
                 {
                     if (pipeList.Contains(jpipe) == false)
                     {
-                        InnoculatePipeThread(jpipe);
+                        Thread innocThread = new Thread(new ParameterizedThreadStart(InnoculatePipeThread));
+                        threadList.Add(innocThread);
+                        innocThread.Start(jpipe);
+                        // InnoculatePipeThread(jpipe);
                         Console.WriteLine("  * " + jpipe.path);
                         pipeList.Add(jpipe);
                     }
@@ -439,7 +463,10 @@ namespace Innoculate.Service
                 {
                     if (mailslotList.Contains(jmail) == false)
                     {
-                        InnoculateMailThread(jmail);
+                        Thread innocThread = new Thread(new ParameterizedThreadStart(InnoculateMailThread));
+                        threadList.Add(innocThread);
+                        innocThread.Start(jmail);
+                        //InnoculateMailThread(jmail);
                         Console.WriteLine("  * " + jmail.path);
                         mailslotList.Add(jmail);
                     }
@@ -502,25 +529,46 @@ namespace Innoculate.Service
                 Console.WriteLine(" * Entries found:");
                 foreach (JsonFilepath jfile in json.filepaths)
                 {
-                    try
+                    if (filepathList.Contains(jfile) == false)
                     {
-                        Directory.CreateDirectory(jfile.GetDirPath());
-                        if (jfile.directory == false)
+                        try
                         {
-                            FileStream fs = new FileStream(jfile.path, FileMode.CreateNew);
-                            fs.Seek(jfile.size, SeekOrigin.Begin);
-                            fs.WriteByte(0);
-                            fs.Close();
+                            Directory.CreateDirectory(jfile.GetDirPath());
+                            if (jfile.directory == false)
+                            {
+                                FileStream fs = new FileStream(jfile.path, FileMode.CreateNew);
+                                fs.Seek(jfile.size, SeekOrigin.Begin);
+                                fs.WriteByte(0);
+                                fs.Close();
+                            }
+                            Console.WriteLine(jfile.path);
                         }
-                        Console.WriteLine(jfile.path);
+                        catch (System.IO.IOException e)
+                        {
+                            Console.WriteLine("IOException: " + e.Message);
+                            continue;
+                        }
+                        filepathList.Add(jfile);
+                        Console.WriteLine("  * " + jfile.path);
                     }
-                    catch (System.IO.IOException e)
+                }
+            }
+
+            // NETWORK LISTENER CREATION section
+            Console.WriteLine("Network Listener Bindings:");
+            if (json.listeners != null)
+            {
+                Console.WriteLine(" * Entries found:");
+                foreach (JsonListener jlistener in json.listeners)
+                {
+                    if (listenerList.Contains(jlistener) == false)
                     {
-                        Console.WriteLine("IOException: " + e.Message);
-                        continue;
+                        Thread innocThread = new Thread(InnoculateListenerThread);
+                        threadList.Add(innocThread);
+                        innocThread.Start(jlistener);
+                        listenerList.Add(jlistener);
                     }
-                    filepathList.Add(jfile);
-                    Console.WriteLine("  * " + jfile.path);
+                    Console.WriteLine("  * {0}/{1} RespondFirst?: {2}",jlistener.port,jlistener.protocol,jlistener.respondfirst);
                 }
             }
 
@@ -538,15 +586,128 @@ namespace Innoculate.Service
             }
         }
 
-        private static void InnoculatePipeThread(JsonNamedpipe jpipe)
+        public static void InnoculateListenerThread(object jobj) // JsonListener jlistener
         {
+            JsonListener jlistener = (JsonListener)jobj;
+
+            if (jlistener.protocol.ToLower() == "tcp")
+            {
+                TcpListener server = null;
+                try
+                {
+                    IPAddress localAddr = IPAddress.Parse("0.0.0.0");
+                    server = new TcpListener(localAddr, jlistener.port);
+                    server.Start();
+                    Byte[] bytes = new Byte[256];
+                    while (true)
+                    {
+                        TcpClient client = server.AcceptTcpClient();
+                        NetworkStream stream = client.GetStream();
+                        stream.ReadTimeout = 100000;
+                        asyncObj session = new asyncObj(stream, jlistener);
+
+                        int i;
+
+                        if (jlistener.respondfirst == true)
+                            stream.Write(Encoding.UTF8.GetBytes(jlistener.response), 0, Encoding.UTF8.GetByteCount(jlistener.response));
+
+                        try
+                        {
+                            //stream.BeginRead(bytes, 0, bytes.Length, null, null);
+                            //stream.BeginRead(bytes, 0, bytes.Length, new AsyncCallback(EndReading), stream);
+                            //stream.EndRead(new AsyncCallback(EndReading));
+                            //while (stream.DataAvailable)
+                            //{
+                            //    continue;
+                            //}
+                            int numBytesRead = 0;
+                            do
+                            {
+                                numBytesRead = stream.Read(bytes, 0, bytes.Length);
+                            }
+                            while (stream.DataAvailable);
+                            //while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
+                            //{
+                            //    continue;
+                            //}
+                        }
+                        catch (System.Net.Sockets.SocketException e)
+                        {
+                            Console.WriteLine("SocketException: {0}", e);
+                        }
+                        catch (System.IO.IOException e)
+                        {
+                            Console.WriteLine("System.IO.IOException: {0}", e);
+                        }
+
+                        if (jlistener.respondfirst == false)
+                            stream.Write(Encoding.UTF8.GetBytes(jlistener.response), 0, Encoding.UTF8.GetByteCount(jlistener.response));
+
+                        client.Close();
+                    }
+                }
+                catch (System.IO.IOException e)
+                {
+                    Console.WriteLine("System.IO.IOException: {0}", e);
+                }
+                catch (SocketException e)
+                {
+                    Console.WriteLine("SocketException: {0}", e);
+                }
+                finally
+                {
+                    server.Stop();
+                }
+
+            }
+            else if (jlistener.protocol.ToLower() == "udp")
+            {
+                UdpClient listener = null;
+                try
+                {
+                    listener = new UdpClient(jlistener.port);
+                    IPEndPoint groupEP = new IPEndPoint(IPAddress.Any, jlistener.port);
+                    while (true)
+                    {
+                        listener.Receive(ref groupEP);
+                        listener.Send(Encoding.UTF8.GetBytes(jlistener.response), Encoding.UTF8.GetByteCount(jlistener.response));
+                        //listener.Close();
+                    }
+                }
+                catch (SocketException e)
+                {
+                    Console.WriteLine("SocketException: " + e.Message);
+                }
+                finally
+                {
+                    listener.Close();
+                }
+
+            }
+
+        }
+
+        public static void EndReading(IAsyncResult ar)
+        {
+            NetworkStream stream = (NetworkStream)ar.AsyncState;
+            //stream.EndRead(ar);
+            return;
+        }
+
+        private static void InnoculatePipeThread(object jobj)
+        {
+            JsonNamedpipe jpipe = (JsonNamedpipe)jobj;
             NamedPipeServerStream pipe = new NamedPipeServerStream(jpipe.path, jpipe.direction);
-            pipe.WaitForConnectionAsync();
+            while(true)
+            {
+                pipe.WaitForConnection();
+            }
         }
 
         // https://code.msdn.microsoft.com/windowsapps/CSMailslotServer-1ca18b47/sourcecode?fileId=21681&pathId=621891947
-        private static void InnoculateMailThread(JsonMailslot jpipe)
+        private static void InnoculateMailThread(object jobj)
         {
+            JsonMailslot jpipe = (JsonMailslot)jobj;
             SECURITY_ATTRIBUTES sa = CreateMailslotSecurity();
             SafeMailslotHandle hMailslot = NativeMethod.CreateMailslot(
                     jpipe.path,               // The name of the mailslot 
@@ -561,9 +722,11 @@ namespace Innoculate.Service
             }
 
             Console.WriteLine("The mailslot ({0}) is created.", jpipe.path);
-
-            // Check messages in the mailslot. 
-            ReadMailslot(hMailslot);
+            while(true)
+            {
+                // Check messages in the mailslot. 
+                ReadMailslot(hMailslot);
+            }
         }
 
         private static void InnocProc()
@@ -593,7 +756,7 @@ namespace Innoculate.Service
         {
 
             Log.Info($"{nameof(Service.WinService)} Start command received.");
-            innocThread = new Thread(new ThreadStart(InnocProc));
+            innocThread = new Thread(InnocProc);
             innocThread.Start();
             //TODO: Implement your service start routine.
             return true;
