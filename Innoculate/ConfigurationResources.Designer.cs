@@ -61,7 +61,7 @@ namespace Innoculate {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to http://lxlc-jbus02.etc.cboe.net/list3.json.
+        ///   Looks up a localized string similar to https://localhost/ioc.json.
         /// </summary>
         internal static string SourceURL {
             get {
