@@ -14,13 +14,12 @@ The purpose of this tool is to provide indicators of compromise (IOCs) that can 
  * Mailslots
  * Registry Keys
  * Files (Zero-filled, with abitrary sizes)
-2. Stub support exists for:
  * TCP/UDP bound listening ports, simulating immediate responses (like SSH) or after receiving *any* input (more like HTTP)
- * Start up a dummy process... e.g. windbg.exe or avp.exe <- Hey look mom, I've got Kaspersky running here!
-3. Planned support for:
  * Dropping files with arbitrary content (either from a URL or from within the JSON file)
  * Honey AuthToken creation - given a set of credentials, create an authtoken. <- this can be dangerous, should be used *very* carefully if this feature is ever created... but it could be interesting for testing SIEMs and/or seeing if someone gets a PTH that shouldn't ever be touched
-4. Possible support may include:
+2. Stub support exists for:
+ * Start up a dummy process... e.g. windbg.exe or avp.exe <- Hey look mom, I've got Kaspersky running here!
+3. Possible support may include:
  * Alerting / Killing if processes with any of the IOC types provided in the grabbed JSON file are found (currently we just ignore the exceptions, keep on truckin').
  * Support non-default option of overwriting regkeys/files if they already exist <- we try to behave nicely and prevent this right now, but there are no warranties...
  
