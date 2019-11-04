@@ -118,6 +118,9 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="SourceURL" xml:space="preserve">
-  <value>https://localhost/ioc.json</value>
+    <value>https://localhost/ioc.json</value>
+  </data>
+  <data name="SyncSeconds" xml:space="preserve">
+    <value>60</value>
   </data>
 </root>
