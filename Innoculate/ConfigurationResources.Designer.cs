@@ -68,5 +68,14 @@ namespace Innoculate {
                 return ResourceManager.GetString("SourceURL", resourceCulture);
             }
         }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 60.
+        /// </summary>
+        internal static string SyncSeconds {
+            get {
+                return ResourceManager.GetString("SyncSeconds", resourceCulture);
+            }
+        }
     }
 }
