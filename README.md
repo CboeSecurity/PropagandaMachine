@@ -9,7 +9,7 @@ The purpose of this tool is to provide indicators of compromise (IOCs) that can 
 
 ## Configuring
 1. Modify the url/timer value to your preference in the ConfigurationResources.resx file.
-2. Compile the Binary
+2. Compile the Binary/Install it.
 3. Configure a web server with the url provided in step 1 with json file(s) using the example_config.json as a template.
 
 ## Now / Planned / Possible
