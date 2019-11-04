@@ -1,0 +1,69 @@
+{
+    "filepaths": [
+        {
+            "directory": "false",
+            "path": "c:\\testdir\\subtestdir\\testfile",
+            "size": "25651200"
+        },
+        {
+            "directory": "true",
+            "path": "c:\\users\\user\\Desktop\\testdir\\testsubdir",
+            "size": "0"
+        }
+    ],
+    "mutex": [
+        {
+            "name": "mutex1",
+            "used": "true"
+        },
+        {
+            "name": "mutex2",
+            "used": "false"
+        }
+    ],
+    "namedpipes": [
+        {
+            "direction": "InOut",
+            "path": "netpipe1"
+        },
+        {
+            "direction": "Out",
+            "path": "localpipe2"
+        }
+    ],
+    "regkeys": [
+        {
+            "path": "HKEY_CURRENT_USER\\Software\\test\\diffsub",
+            "type": "none",
+            "value": "",
+            "valuename": ""
+        },
+        {
+            "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\innoculate",
+            "type": "string",
+            "value": "testvalue",
+            "valuename": "teststring"
+        }
+    ],
+    "listeners": [
+        {
+            "protocol": "tcp",
+            "port": 40001,
+            "response": "200 OK",
+            "respondfirst": "true"
+        },
+        {
+            "protocol": "tcp",
+            "port": 40000,
+            "response": "200 OK",
+            "respondfirst": "false"
+        }
+    ],
+    "impersonations": [
+        {
+            "username": "user",
+            "domain": "domain",
+            "password": "password"
+        }
+    ]
+}
