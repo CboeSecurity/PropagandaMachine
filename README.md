@@ -7,6 +7,11 @@ The purpose of this tool is to provide indicators of compromise (IOCs) that can 
 3. Drop documents and files of interest that are meant to be honeytokens to monitor for potential perpetrator access (e.g. using sysmon).
 4. Test your SIEM for alerting on known IOCs
 
+## Configuring
+1. Modify the url/timer value to your preference in the ConfigurationResources.resx file.
+2. Compile the Binary
+3. Configure a web server with the url provided in step 1 with json file(s) using the example_config.json as a template.
+
 ## Now / Planned / Possible
 1. Currently the code supports:
  * Named Pipes
