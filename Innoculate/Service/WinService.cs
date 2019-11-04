@@ -38,7 +38,11 @@ using System.ComponentModel;
 // network listeners
 using System.Net.Sockets;
 
+// impersonation related
+using System.Security.Authentication;
+using System.Security.Principal;
 
+// service related (part of original app)
 using System.Threading.Tasks;
 using Topshelf;
 
@@ -127,6 +131,8 @@ namespace Innoculate.Service
     public class JsonFilepath : IEquatable<JsonFilepath>
     {
         public string path { get; set; }
+        [JsonProperty(Required = Required.Default)]
+        public string data { get; set; }
         public int size { get; set; }
         public bool directory { get; set; }
         public string GetDirPath()
@@ -366,6 +372,33 @@ namespace Innoculate.Service
         }
     }
 
+    public class JsonImpersonation : IEquatable<JsonImpersonation>
+    {
+        public string username { get; set; }
+        public string domain { get; set; }
+        public string password { get; set; }
+        public override bool Equals(object obj)
+        {
+            return this.Equals(obj as JsonImpersonation);
+        }
+        public bool Equals(JsonImpersonation other)
+        {
+            if (other.username != username)
+                return false;
+            if (other.domain != domain)
+                return false;
+            if (other.password != password)
+                return false;
+
+            return true;
+        }
+        public override int GetHashCode()
+        {
+            return username.GetHashCode() ^ password.GetHashCode() ^ domain.GetHashCode();
+        }
+    }
+
+
     public class JsonDefinitionDocument
     {
         public List<JsonFilepath> filepaths { get; set; }
@@ -375,6 +408,7 @@ namespace Innoculate.Service
         public List<JsonProcess> processes { get; set; }
         public List<JsonRegkey> regkeys { get; set; }
         public List<JsonListener> listeners { get; set; }
+        public List<JsonImpersonation> impersonations { get; set; }
     }
     class WinService
     {
@@ -386,6 +420,7 @@ namespace Innoculate.Service
         private static List<JsonFilepath> filepathList;
         private static List<JsonMailslot> mailslotList;
         private static List<JsonListener> listenerList;
+        private static List<JsonImpersonation> impersonationList;
 
         private static List<Thread> threadList;
 
@@ -406,6 +441,7 @@ namespace Innoculate.Service
             filepathList = new List<JsonFilepath>();
             mailslotList = new List<JsonMailslot>();
             listenerList = new List<JsonListener>();
+            impersonationList = new List<JsonImpersonation>();
 
             threadList = new List<Thread>();
         }
@@ -427,10 +463,7 @@ namespace Innoculate.Service
                         Console.WriteLine("  * " + jmutex.name);
                         mutexList.Add(jmutex);
                     }
-
-
                 }
-
             }
 
             // NAMED PIPE section
@@ -450,7 +483,6 @@ namespace Innoculate.Service
                         pipeList.Add(jpipe);
                     }
                 }
-
             }
 
 
@@ -471,7 +503,6 @@ namespace Innoculate.Service
                         mailslotList.Add(jmail);
                     }
                 }
-
             }
 
             // REGKEYS section
@@ -519,7 +550,6 @@ namespace Innoculate.Service
                         regkeyList.Add(jkey);
                     }
                 }
-
             }
 
             // FILE/DIR CREATION section
@@ -534,7 +564,14 @@ namespace Innoculate.Service
                         try
                         {
                             Directory.CreateDirectory(jfile.GetDirPath());
-                            if (jfile.directory == false)
+                            if (jfile.data != null)
+                            {
+                                FileStream fs = new FileStream(jfile.path, FileMode.CreateNew);
+                                fs.Write(Encoding.UTF8.GetBytes(jfile.data), 0, Encoding.UTF8.GetByteCount(jfile.data));
+                                fs.Close();
+                            }
+                            else if (jfile.directory == false)
+                                //if (jfile.directory == false)
                             {
                                 FileStream fs = new FileStream(jfile.path, FileMode.CreateNew);
                                 fs.Seek(jfile.size, SeekOrigin.Begin);
@@ -542,6 +579,11 @@ namespace Innoculate.Service
                                 fs.Close();
                             }
                             Console.WriteLine(jfile.path);
+                        }
+                        catch (System.UnauthorizedAccessException e)
+                        {
+                            Console.WriteLine("UnauthorizedAccessException: " + e.Message);
+                            continue;
                         }
                         catch (System.IO.IOException e)
                         {
@@ -572,6 +614,29 @@ namespace Innoculate.Service
                 }
             }
 
+
+            Console.WriteLine("Authentication Impersonations:");
+            if (json.impersonations != null)
+            {
+                Console.WriteLine(" * Entries found:");
+                foreach (JsonImpersonation jimpersonation in json.impersonations)
+                {
+                    if (impersonationList.Contains(jimpersonation) == false)
+                    {
+                        Impersonator curImp = new Impersonator(jimpersonation.username, jimpersonation.domain, jimpersonation.password);
+                        //WindowsImpersonationContext newPersona = curImp.ImpersonationContext;
+                        Console.WriteLine("Current user: " +WindowsIdentity.GetCurrent().Name);
+                        Thread innocThread = new Thread(InnoculateNoopThread);
+                        Console.WriteLine("Current user: " +WindowsIdentity.GetCurrent().Name);
+                        threadList.Add(innocThread);
+                        //System.Security.Principal.WindowsIdentity.Impersonate();
+                        innocThread.Start();
+                        impersonationList.Add(jimpersonation);
+                    }
+                    Console.WriteLine("  * User:{0} Password:<REDACTED>",jimpersonation.username);
+                }
+            }
+
             // PROCESSES section
             Console.WriteLine("Processes:");
             if (json.processes != null)
@@ -583,6 +648,15 @@ namespace Innoculate.Service
                 //        Console.WriteLine(procstring);
                 //    }
 
+            }
+        }
+
+        private static void InnoculateNoopThread(object jobj)
+        {
+            while (true)
+            {
+                Console.WriteLine("Thread Current user: " +WindowsIdentity.GetCurrent().Name);
+                Thread.Sleep(10000);
             }
         }
 
@@ -605,8 +679,6 @@ namespace Innoculate.Service
                         NetworkStream stream = client.GetStream();
                         stream.ReadTimeout = 100000;
                         asyncObj session = new asyncObj(stream, jlistener);
-
-                        int i;
 
                         if (jlistener.respondfirst == true)
                             stream.Write(Encoding.UTF8.GetBytes(jlistener.response), 0, Encoding.UTF8.GetByteCount(jlistener.response));
@@ -671,7 +743,6 @@ namespace Innoculate.Service
                     {
                         listener.Receive(ref groupEP);
                         listener.Send(Encoding.UTF8.GetBytes(jlistener.response), Encoding.UTF8.GetByteCount(jlistener.response));
-                        //listener.Close();
                     }
                 }
                 catch (SocketException e)
@@ -682,15 +753,12 @@ namespace Innoculate.Service
                 {
                     listener.Close();
                 }
-
             }
-
         }
 
         public static void EndReading(IAsyncResult ar)
         {
             NetworkStream stream = (NetworkStream)ar.AsyncState;
-            //stream.EndRead(ar);
             return;
         }
 
@@ -729,12 +797,9 @@ namespace Innoculate.Service
             }
         }
 
-        private static void InnocProc()
+        private static void InnocProcMain(string url)
         {
             string html = string.Empty;
-
-            ResourceManager rm = new ResourceManager("Innoculate.ConfigurationResources", Assembly.GetExecutingAssembly());
-            string url = rm.GetString("SourceURL");
 
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.AutomaticDecompression = DecompressionMethods.GZip;
@@ -751,16 +816,28 @@ namespace Innoculate.Service
             SyncFromJSON(html);
         }
 
+        private static void InnocSyncThread(object jobj)
+        {
+            ResourceManager rm = new ResourceManager("Innoculate.ConfigurationResources", Assembly.GetExecutingAssembly());
+            string url = rm.GetString("SourceURL");
+            int SyncWaitTime = 1000 * Int32.Parse(rm.GetString("SyncSeconds"));
+            while (true)
+            {
+                InnocProcMain(url);
+                Thread.Sleep(SyncWaitTime);
+            }
+        }
+
 
         public bool Start(HostControl hostControl)
         {
 
             Log.Info($"{nameof(Service.WinService)} Start command received.");
-            innocThread = new Thread(InnocProc);
+            innocThread = new Thread(InnocSyncThread);
             innocThread.Start();
+
             //TODO: Implement your service start routine.
             return true;
-
         }
 
         public bool Stop(HostControl hostControl)
@@ -770,7 +847,6 @@ namespace Innoculate.Service
 
             //TODO: Implement your service stop routine.
             return true;
-
         }
 
         public bool Pause(HostControl hostControl)
@@ -780,7 +856,6 @@ namespace Innoculate.Service
 
             //TODO: Implement your service start routine.
             return true;
-
         }
 
         public bool Continue(HostControl hostControl)
@@ -790,7 +865,6 @@ namespace Innoculate.Service
 
             //TODO: Implement your service stop routine.
             return true;
-
         }
 
         public bool Shutdown(HostControl hostControl)
@@ -800,8 +874,133 @@ namespace Innoculate.Service
 
             //TODO: Implement your service stop routine.
             return true;
-
         }
+
+        // ************ IMPERSONATION RELATED *************
+
+        /// <summary>
+        /// derived from http://support.microsoft.com/default.aspx?scid=kb;en-us;Q306158
+        /// </summary>
+        public class Impersonator : IDisposable
+        {
+            private const int LOGON32_LOGON_INTERACTIVE = 2;
+
+            private const int LOGON32_PROVIDER_DEFAULT = 0;
+
+            public WindowsImpersonationContext ImpersonationContext { get; private set; }
+
+            public Impersonator(string userName, string domain, string password)
+            {
+                if (!this.ImpersonateValidUser(userName, domain, password))
+                {
+                    //System.Security.Principal.WindowsIdentity.Impersonate();
+                    throw new InvalidCredentialException(
+                        string.Format("unable to impersonate {0} in {1} domain", userName, domain));
+                }
+            }
+
+            [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+            public static extern bool CloseHandle(IntPtr handle);
+
+            [DllImport("advapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+            public static extern int DuplicateToken(IntPtr hToken, int impersonationLevel, ref IntPtr hNewToken);
+
+            [DllImport("advapi32.dll")]
+            public static extern int LogonUserA(
+                string lpszUserName,
+                string lpszDomain,
+                string lpszPassword,
+                int dwLogonType,
+                int dwLogonProvider,
+                ref IntPtr phToken);
+
+            [DllImport("advapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+            public static extern bool RevertToSelf();
+
+            public void Dispose()
+            {
+                if (this.ImpersonationContext != null)
+                {
+                    this.ImpersonationContext.Undo();
+                }
+            }
+
+            private bool ImpersonateValidUser(string userName, string domain, string password)
+            {
+                var token = IntPtr.Zero;
+                var tokenDuplicate = IntPtr.Zero;
+
+                //System.Security.Principal.NTAccount
+                try
+                {
+                    if (RevertToSelf())
+                    {
+                        if (LogonUserA(
+                            userName,
+                            domain,
+                            password,
+                            LOGON32_LOGON_INTERACTIVE,
+                            LOGON32_PROVIDER_DEFAULT,
+                            ref token) != 0)
+                        {
+                            if (DuplicateToken(token, 2, ref tokenDuplicate) != 0)
+                            {
+                                var tempWindowsIdentity = new WindowsIdentity(tokenDuplicate);
+                                this.ImpersonationContext = tempWindowsIdentity.Impersonate();
+                            }
+                            else
+                            {
+                                throw new Win32Exception(Marshal.GetLastWin32Error());
+                            }
+                        }
+                        else
+                        {
+                            throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+                    }
+                    else
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        string.Format(
+                            @"Error occured while impersonating User '{0}\{1}': {2}",
+                            domain,
+                            userName,
+                            ex.Message),
+                        ex);
+                }
+                finally
+                {
+                    if (this.ImpersonationContext != null)
+                    {
+                        CloseHandle(token);
+                        token = IntPtr.Zero;
+                        CloseHandle(tokenDuplicate);
+                        tokenDuplicate = IntPtr.Zero;
+                    }
+
+                    if (token != IntPtr.Zero)
+                    {
+                        CloseHandle(token);
+                    }
+
+                    if (tokenDuplicate != IntPtr.Zero)
+                    {
+                        CloseHandle(tokenDuplicate);
+                    }
+                }
+
+                return true;
+            }
+        }
+
+
+
+        // ************ MAILSLOT RELATED ******************
 
         /// <summary> 
         /// The CreateMailslotSecurity function creates and initializes a new  
